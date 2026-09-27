@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>System Diagnostic</title>
+<style>
+  :root {
+    --green: #00ff41;
+    --dim: #0a3d1f;
+    --bg: #000;
+  }
+  html, body {
+    height: 100%;
+    margin: 0;
+    background: var(--bg);
+    overflow: hidden;
+    font-family: 'Courier New', Consolas, monospace;
+  }
+  #matrix {
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+  }
+  #terminal {
+    position: fixed;
+    inset: 0;
+    z-index: 2;
+    padding: 24px;
+    padding-top: max(24px, env(safe-area-inset-top, 0px));
+    padding-bottom: max(24px, env(safe-area-inset-bottom, 0px));
+    box-sizing: border-box;
+    color: var(--green);
+    font-size: clamp(12px, 2.2vw, 16px);
+    line-height: 1.5;
+    text-shadow: 0 0 5px var(--green);
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow-y: auto;
+    height: 100%;
+  }
+  #terminal::-webkit-scrollbar { display: none; }
+  .cursor {
+    display: inline-block;
+    width: 8px;
+    height: 1em;
+    background: var(--green);
+    vertical-align: text-bottom;
+    animation: blink 1s step-start infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+  .bar-track {
+    display: inline-block;
+    width: min(300px, 60vw);
+  }
+  .flash {
+    animation: flash 0.15s ease-out;
+  }
+  @keyframes flash {
+    0% { background: rgba(0,255,65,0.25); }
+    100% { background: transparent; }
+  }
+  .warn { color: #ff3b3b; text-shadow: 0 0 6px #ff3b3b; }
+  .dim { color: #4da868; }
+</style>
+</head>
+<body>
+<canvas id="matrix"></canvas>
+<div id="terminal"></div>
+
+<script>
+// ---- Matrix rain background ----
+const canvas = document.getElementById('matrix');
+const ctx = canvas.getContext('2d');
+function resize() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener('resize', resize);
+
+const chars = "01アイウエオカキクケコサシスセソタチツテトナニヌネノABCDEFGHIJKLMNOPQRSTUVWXYZ";
+const fontSize = 16;
+let columns = Math.floor(canvas.width / fontSize);
+let drops = new Array(columns).fill(1);
+
+function drawMatrix() {
+  ctx.fillStyle = "rgba(0,0,0,0.08)";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = "#00ff41";
+  ctx.font = fontSize + "px monospace";
+  for (let i = 0; i < drops.length; i++) {
+    const text = chars[Math.floor(Math.random() * chars.length)];
+    ctx.fillText(text, i * fontSize, drops[i] * fontSize);
+    if (drops[i] * fontSize > canvas.height && Math.random() > 0.975) {
+      drops[i] = 0;
+    }
+    drops[i]++;
+  }
+}
+setInterval(drawMatrix, 40);
+
+// ---- Terminal sequence ----
+const term = document.getElementById('terminal');
+
+function randIP() {
+  return `${rnd(1,255)}.${rnd(0,255)}.${rnd(0,255)}.${rnd(1,255)}`;
+}
+function randHex(len) {
+  let s = '';
+  const chars = '0123456789ABCDEF';
+  for (let i=0;i<len;i++) s += chars[Math.floor(Math.random()*chars.length)];
+  return s;
+}
+function randMac() {
+  let parts = [];
+  for (let i=0;i<6;i++) parts.push(randHex(2));
+  return parts.join(':');
+}
+function rnd(min,max) { return Math.floor(Math.random()*(max-min+1))+min; }
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+async function typeLine(html, opts = {}) {
+  const speed = opts.speed || 8;
+  const line = document.createElement('div');
+  term.appendChild(line);
+  const plain = html.replace(/<[^>]*>/g, '');
+  let shown = '';
+  for (let i = 0; i < plain.length; i++) {
+    shown += plain[i];
+    line.textContent = shown;
+    term.scrollTop = term.scrollHeight;
+    if (!opts.instant) await sleep(speed + Math.random()*10);
+  }
+  if (opts.cls) line.className = opts.cls;
+  await sleep(opts.pause || 60);
+  return line;
+}
+
+function printLine(html, cls) {
+  const line = document.createElement('div');
+  line.innerHTML = html;
+  if (cls) line.className = cls;
+  term.appendChild(line);
+  term.scrollTop = term.scrollHeight;
+}
+
+async function progressBar(label, ms, opts = {}) {
+  const line = document.createElement('div');
+  term.appendChild(line);
+  const steps = 24;
+  const stepTime = ms / steps;
+  for (let i = 0; i <= steps; i++) {
+    const filled = '█'.repeat(i);
+    const empty = '░'.repeat(steps - i);
+    const pct = Math.floor((i/steps)*100);
+    line.innerHTML = `${label} <span class="bar-track">[${filled}${empty}]</span> ${pct}%`;
+    term.scrollTop = term.scrollHeight;
+    await sleep(stepTime);
+  }
+  await sleep(opts.pause || 150);
+}
+
+async function fakeFileScan(count, dir) {
+  const exts = ['.dat','.cfg','.db','.log','.bak','.key','.sys','.tmp'];
+  for (let i=0;i<count;i++) {
+    const name = randHex(rnd(4,8)).toLowerCase();
+    const ext = exts[rnd(0,exts.length-1)];
+    const size = rnd(1,900);
+    printLine(`<span class="dim">${dir}/${name}${ext}</span> <span class="dim">... ${size}KB</span>`);
+    term.scrollTop = term.scrollHeight;
+    await sleep(rnd(15,45));
+  }
+}
+
+async function run() {
+  await sleep(400);
+  await typeLine('booting secure_shell v4.2.1 ...', {speed:12});
+  await typeLine('initializing network interface...', {speed:10});
+  await sleep(200);
+  printLine(`interface: eth0  mac: ${randMac()}  status: <span style="color:#00ff41">UP</span>`);
+  await sleep(300);
+
+  await typeLine('resolving target host...', {speed:12});
+  const targetIP = randIP();
+  await sleep(200);
+  printLine(`target locked: <b>${targetIP}</b>`);
+  await sleep(400);
+
+  await progressBar('establishing connection', 1400);
+  printLine('connection established. handshake OK.', 'flash');
+  await sleep(300);
+
+  await typeLine('deploying payload via port 443...', {speed:10});
+  await progressBar('uploading payload', 1600);
+  await sleep(200);
+
+  await typeLine('bypassing firewall ruleset...', {speed:10});
+  for (let i=0;i<5;i++) {
+    printLine(`rule ${randHex(4)} ... <span class="warn">BLOCKED</span> → rerouting`);
+    await sleep(180);
+  }
+  printLine('firewall bypass successful.', 'flash');
+  await sleep(300);
+
+  await typeLine('scanning filesystem for credential stores...', {speed:10});
+  await sleep(200);
+  await fakeFileScan(14, '/usr/local/etc');
+  await sleep(200);
+
+  await typeLine('cracking authentication hash...', {speed:10});
+  await sleep(150);
+  let hash = randHex(32);
+  const line = document.createElement('div');
+  term.appendChild(line);
+  for (let i=0;i<20;i++) {
+    line.textContent = 'hash: ' + randHex(32);
+    await sleep(50);
+  }
+  line.innerHTML = `hash cracked: <span style="color:#00ff41">${hash}</span>`;
+  await sleep(400);
+
+  await progressBar('decrypting user database', 1800);
+  await sleep(200);
+
+  await typeLine('extracting session tokens...', {speed:10});
+  await sleep(150);
+  for (let i=0;i<3;i++) {
+    printLine(`token[${i}]: ${randHex(40)}`);
+    await sleep(200);
+  }
+  await sleep(300);
+
+  await typeLine('elevating privileges...', {speed:10});
+  await progressBar('privilege escalation', 1200);
+  printLine('root access obtained.', 'flash');
+  await sleep(400);
+
+  await typeLine('covering tracks / wiping logs...', {speed:10});
+  await fakeFileScan(8, '/var/log');
+  printLine('log wipe complete. no trace remaining.', 'flash');
+  await sleep(500);
+
+  printLine('');
+  printLine('════════════════════════════════════');
+  await sleep(200);
+  printLine('<span style="font-size:1.3em; letter-spacing:2px;">ACCESS GRANTED</span>', 'flash');
+  printLine('════════════════════════════════════');
+  await sleep(200);
+  printLine(`session: root@${targetIP}`);
+  printLine(`uptime: ${rnd(10,999)}h ${rnd(0,59)}m`);
+  printLine('');
+  await typeLine('standing by for command...', {speed:14});
+  printLine('<span class="cursor"></span>');
+}
+
+run();
+</script>
+</body>
+</html>s\
